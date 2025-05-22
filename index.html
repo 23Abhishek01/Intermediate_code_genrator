@@ -1,0 +1,530 @@
+<!--
+Enhancements added:
+ 1. Dark/light theme toggle (using a button and CSS variables).
+ 2. File upload (using an <input type="file" id="fileUpload"> and a "Load File" button).
+ 3. Collapsible sections (using <details> and <summary> for each phase (Lexical, Syntax, Semantic, Intermediate)).
+ 4. Syntax highlighting (using highlight.js (included via CDN) for the C code (or "pre" blocks)).
+ 5. Error handling (displaying compiler errors (from stderr) in a red box).
+ 6. "Help" button (with a modal (or "dialog") explaining the phases).
+ 7. "Copy" button (to copy the output (or a particular phase's output) to clipboard).
+ 8. "History" (or "Recent Compilations") (using localStorage) so that users can revisit (or compare) previous runs.
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intermediate Code Generator</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/atom-one-dark.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary: #64748b;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --bg-color: #f8fafc;
+            --container-bg: #ffffff;
+            --border-color: #e2e8f0;
+            --text-color: #1e293b;
+            --text-muted: #64748b;
+            --pre-bg: #1e293b;
+            --card-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --transition: all 0.2s ease-in-out;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #0f172a;
+            --container-bg: #1e293b;
+            --border-color: #334155;
+            --text-color: #f1f5f9;
+            --text-muted: #94a3b8;
+            --pre-bg: #0f172a;
+            --card-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.5;
+            transition: var(--transition);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: var(--container-bg);
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: var(--card-shadow);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin: 0;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        button.primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+        }
+
+        button.secondary {
+            background: var(--secondary);
+            color: white;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        #themeToggle {
+            background: transparent;
+            border: 2px solid var(--border-color);
+            color: var(--text-color);
+        }
+
+        textarea {
+            width: 100%;
+            height: 300px;
+            padding: 1rem;
+            border: 2px solid var(--border-color);
+            border-radius: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+            resize: vertical;
+            background: var(--container-bg);
+            color: var(--text-color);
+            transition: var(--transition);
+            margin-bottom: 1.5rem;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        #output {
+            margin-top: 2rem;
+        }
+
+        details {
+            background: var(--container-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+
+        summary {
+            padding: 1rem;
+            cursor: pointer;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: var(--transition);
+        }
+
+        summary:hover {
+            background: rgba(0, 0, 0, 0.02);
+        }
+
+        details[open] summary {
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .details-content {
+            padding: 1rem;
+        }
+
+        pre.syntax-analysis {
+            background: var(--pre-bg);
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            margin: 1rem 0;
+            font-size: 0.875rem;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1rem 0;
+            border-radius: 0.75rem;
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: var(--bg-color);
+            font-weight: 600;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .error-box {
+            background: #fee2e2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            margin: 1rem 0;
+        }
+
+        #helpModal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: var(--container-bg);
+            margin: 10% auto;
+            padding: 2rem;
+            border-radius: 1rem;
+            max-width: 600px;
+            box-shadow: var(--card-shadow);
+            position: relative;
+        }
+
+        #history {
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 2px solid var(--border-color);
+        }
+
+        #history h3 {
+            margin-bottom: 1rem;
+            color: var(--text-muted);
+        }
+
+        #historyList {
+            display: grid;
+            gap: 0.75rem;
+        }
+
+        #historyList li {
+            padding: 1rem;
+            background: var(--bg-color);
+            border-radius: 0.75rem;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        #historyList li:hover {
+            transform: translateX(4px);
+            background: var(--border-color);
+        }
+
+        .file-upload-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        #fileUpload {
+            position: absolute;
+            left: -9999px;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 1rem;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            .controls {
+                flex-direction: column;
+            }
+
+            .button-group {
+                flex-wrap: wrap;
+            }
+
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Intermediate Code Generator</h1>
+            <button id="themeToggle" class="secondary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                </svg>
+                Toggle Theme
+            </button>
+        </div>
+
+        <div class="controls">
+            <div class="button-group">
+                <div class="file-upload-wrapper">
+                    <button id="loadFileBtn" class="secondary">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"></path>
+                        </svg>
+                        Load File
+                    </button>
+                    <input type="file" id="fileUpload" accept=".c,.txt" />
+                </div>
+                <button id="compileButton" class="primary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M5 12h14M12 5l7 7-7 7"></path>
+                    </svg>
+                    Compile
+                </button>
+                <button id="helpBtn" class="secondary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"></path>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                    Help
+                </button>
+                <button id="copyBtn" class="secondary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
+                    </svg>
+                    Copy Output
+                </button>
+            </div>
+        </div>
+
+        <textarea id="sourceCode" placeholder="Enter your C code here..."></textarea>
+        <div id="output"></div>
+        
+        <div id="history">
+            <h3>Recent Compilations</h3>
+            <ul id="historyList"></ul>
+        </div>
+    </div>
+
+    <div id="helpModal">
+        <div class="modal-content">
+            <h2>Help Guide</h2>
+            <p>This tool compiles your C code and generates intermediate code in four phases:</p>
+            <ul style="margin: 1rem 0; padding-left: 1.5rem;">
+                <li style="margin-bottom: 0.5rem;"><strong>Lexical Analysis:</strong> Breaks your code into tokens and builds a Symbol Table.</li>
+                <li style="margin-bottom: 0.5rem;"><strong>Syntax Analysis:</strong> Validates code structure and builds a parse tree.</li>
+                <li style="margin-bottom: 0.5rem;"><strong>Semantic Analysis:</strong> Performs type checking and validates code meaning.</li>
+                <li style="margin-bottom: 0.5rem;"><strong>Intermediate Code:</strong> Generates Three Address Code (TAC).</li>
+            </ul>
+            <button id="closeHelpBtn" class="primary" style="margin-top: 1rem;">Close</button>
+        </div>
+    </div>
+
+    <script>
+        // (Optional) "History" (or "Recent Compilations") using localStorage
+        const HISTORY_KEY = "icg_history";
+        const MAX_HISTORY = 5;
+        let history = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+
+        function updateHistory(source, output) {
+            history = [{ source, output, date: new Date().toLocaleString() }, ...history.slice(0, MAX_HISTORY - 1)];
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const ul = document.getElementById("historyList");
+            ul.innerHTML = "";
+            history.forEach((item, i) => {
+                const li = document.createElement("li");
+                li.textContent = "Compilation " + (i + 1) + " (" + item.date + ")";
+                li.onclick = () => { document.getElementById("sourceCode").value = item.source; parseAndDisplay(item.output); };
+                ul.appendChild(li);
+            });
+        }
+
+        // "Help" modal (or "dialog") (open/close)
+        const helpModal = document.getElementById("helpModal");
+        document.getElementById("helpBtn").onclick = () => { helpModal.style.display = "block"; };
+        document.getElementById("closeHelpBtn").onclick = () => { helpModal.style.display = "none"; };
+
+        // "Copy" button (copy output to clipboard)
+        document.getElementById("copyBtn").onclick = () => {
+            const outputText = document.getElementById("output").innerText;
+            navigator.clipboard.writeText(outputText).then(() => alert("Output copied to clipboard!")).catch(err => alert("Error copying: " + err));
+        };
+
+        // "File Upload" (or "Load File") (using a hidden input and a "Load File" button)
+        document.getElementById("loadFileBtn").onclick = () => { document.getElementById("fileUpload").click(); };
+        document.getElementById("fileUpload").onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const fr = new FileReader();
+                fr.onload = (event) => { document.getElementById("sourceCode").value = event.target.result; };
+                fr.readAsText(file);
+            }
+        };
+
+        // "Dark/Light" (or "Toggle") theme (using CSS variables)
+        const themeToggle = document.getElementById("themeToggle");
+        let isDark = false;
+        themeToggle.onclick = () => {
+            isDark = !isDark;
+            document.body.setAttribute("data-theme", isDark ? "dark" : "light");
+        };
+
+        // "Collapsible" (or "Expand/Collapse") sections (using <details> and <summary>)
+        function wrapCollapsible(title, content) {
+            return "<details><summary>" + title + "</summary>" + content + "</details>";
+        }
+
+        // "Syntax Highlighting" (using highlight.js) (for "pre" blocks)
+        function highlightCode(code) {
+            return "<pre class='syntax-analysis hljs'><code class='language-c'>" + code + "</code></pre>";
+        }
+
+        // "Error Handling" (displaying compiler errors (from stderr) in a red box)
+        function displayError(error) {
+            const errBox = "<div class='error-box'>" + error + "</div>";
+            document.getElementById("output").innerHTML = errBox;
+        }
+
+        // "Compile" (or "Generate") (fetching /compile and parsing the output)
+        document.getElementById("compileButton").addEventListener("click", function() {
+            const sourceCode = document.getElementById("sourceCode").value;
+            fetch("/compile", { method: "POST", body: sourceCode })
+                .then(response => response.text())
+                .then(data => {
+                    parseAndDisplay(data);
+                    updateHistory(sourceCode, data);
+                })
+                .catch(error => { displayError("Error: " + error); });
+        });
+
+        // "Parse" (or "Display") (parsing the output (Lexical, Syntax, Semantic, Intermediate) and "collapsing" (or "expanding") each phase)
+        function parseAndDisplay(output) {
+            let html = "";
+            // Symbol Table (Lexical Analysis (Phase 1) output)
+            const symbolTableMatch = output.match(/SYMBOL DATATYPE TYPE LINE NUMBER[\s\S]+?\n\n/);
+            if (symbolTableMatch) {
+                const lines = symbolTableMatch[0].split('\n').slice(2, -1).filter(Boolean);
+                const rows = lines.map(line => line.trim().split(/\s{2,}|\s(?=header|keyword|constant|variable|int)/g));
+                html += wrapCollapsible("<h3>Symbol Table (Lexical Analysis)</h3>", renderTable(["Symbol", "Datatype", "Type", "Line Number"], rows));
+            }
+            // Lexical Analysis (Phase 1) (raw output)
+            const lexicalMatch = output.match(/PHASE 1: LEXICAL ANALYSIS([\s\S]+?)PHASE 2:/);
+            if (lexicalMatch) {
+                html += wrapCollapsible("<h3>Lexical Analysis (Phase 1)</h3>", highlightCode(lexicalMatch[1].trim()));
+            }
+            // Syntax Analysis (Phase 2) (raw output)
+            const syntaxMatch = output.match(/PHASE 2: SYNTAX ANALYSIS([\s\S]+?)PHASE 3:/);
+            if (syntaxMatch) {
+                html += wrapCollapsible("<h3>Syntax Analysis (Phase 2)</h3>", highlightCode(syntaxMatch[1].trim()));
+            }
+            // Semantic Analysis (Phase 3) (raw output)
+            const semanticMatch = output.match(/PHASE 3: SEMANTIC ANALYSIS([\s\S]+?)PHASE 4:/);
+            if (semanticMatch) {
+                html += wrapCollapsible("<h3>Semantic Analysis (Phase 3)</h3>", highlightCode(semanticMatch[1].trim()));
+            }
+            // Intermediate Code (Phase 4) (raw output)
+            const intermediateMatch = output.match(/PHASE 4: INTERMEDIATE CODE GENERATION([\s\S]+?)(?=PHASE 5:|$)/);
+            if (intermediateMatch) {
+                html += wrapCollapsible("<h3>Intermediate Code Generation (Phase 4)</h3>", highlightCode(intermediateMatch[1].trim()));
+            }
+            // (Optional) "Three Address Code" (or "TAC") (if you want a separate "table" for TAC, uncomment the following block)
+            /*
+            const tacMatch = output.match(/Three Address Code:[\s\S]+?Index Op Arg1 Arg2 Result[\s\S]+?\n[-]+\n([\s\S]+)/);
+            if (tacMatch) {
+                const lines = tacMatch[1].split('\n').filter(line => line.trim() && !/^[-]+$/.test(line));
+                const rows = lines.map(line => line.trim().split(/\s+/));
+                html += wrapCollapsible("<h3>Three Address Code (TAC)</h3>", renderTable(["Index", "Op", "Arg1", "Arg2", "Result"], rows));
+            }
+            */
+            document.getElementById("output").innerHTML = html;
+        }
+
+        // "Render" (or "Display") (rendering a table (for Symbol Table or TAC))
+        function renderTable(headers, rows) {
+            let html = "<table>";
+            html += "<tr>" + headers.map(h => "<th>" + h + "</th>").join("") + "</tr>";
+            rows.forEach(row => { html += "<tr>" + row.map(cell => "<td>" + cell + "</td>").join("") + "</tr>"; });
+            html += "</table>";
+            return html;
+        }
+
+        // (Optional) "Render" (or "Display") (rendering "History" (or "Recent Compilations") on page load)
+        renderHistory();
+    </script>
+</body>
+</html> 
